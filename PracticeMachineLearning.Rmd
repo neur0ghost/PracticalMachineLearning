@@ -1,0 +1,115 @@
+---
+title: "Practical Machine Learning exercise"
+author: "neur0ghost"
+date: "Saturday, July 25, 2015"
+output: html_document
+---
+
+##Background##
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+##Setting the libraries and the seed##
+
+```{r, }
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+set.seed(12345)
+
+```
+
+##Download the data##
+```{r}
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainRaw <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testRaw <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+##Data Processing##
+
+The data needs to be tidied, as it has missing values and variables without meaning.
+
+```{r}
+trainRaw <- trainRaw[, colSums(is.na(trainRaw)) == 0] 
+testRaw <- testRaw[, colSums(is.na(testRaw)) == 0] 
+
+classe <- trainRaw$classe
+trainRemove <- grepl("^X|timestamp|window", names(trainRaw))
+trainRaw <- trainRaw[, !trainRemove]
+trainTidy <- trainRaw[, sapply(trainRaw, is.numeric)]
+trainTidy$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(testRaw))
+testRaw <- testRaw[, !testRemove]
+testTidy <- testRaw[, sapply(testRaw, is.numeric)]
+dim(testTidy)
+```
+
+##Subsetting Training and Testing Data##
+
+We'll use a 60%/40% splicing. We will use testData for validation of the model.
+
+```{r}
+inTrain <- createDataPartition(trainTidy$classe, p=0.60, list=FALSE)
+trainData <- trainTidy[inTrain, ]
+testData <- trainTidy[-inTrain, ]
+```
+
+##Creating a model##
+
+We fit a predictive model for activity recognition using Random Forest algorithm because it automatically selects important variables and is robust to correlated covariates & outliers in general. We will use 5-fold cross validation when applying the algorithm.
+
+```{r}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=trainData, method="rf", trControl=controlRf, ntree=250)
+modelRf
+```
+
+The next step is predicting the performance of the model on the validation set.
+
+```{r}
+predictRf <- predict(modelRf, testData)
+confusionMatrix(testData$classe, predictRf)
+```
+
+The expected out-of-sample error will correspond to the quantity: 1-accuracy in the cross-validation data. Accuracy is the proportion of correct classified observation over the total sample in the subTesting data set. Expected accuracy is the expected accuracy in the out-of-sample data set (i.e. original testing data set). Thus, the expected value of the out-of-sample error will correspond to the expected number of missclassified observations/total observations in the TestData set, which is the quantity: 1-accuracy found from the cross-validation data set.
+
+```{r}
+accuracy <- postResample(predictRf, testData$classe)
+accuracy
+outsampleerror <- 1 - as.numeric(confusionMatrix(testData$classe, predictRf)$overall[1])
+outsampleerror
+```
+
+The model has an accuracy of 99.2% and an estimated out of sample error of 8.0%.
+
+##Testing the Model##
+Cross-validation will be performed by subsampling our training data set randomly without replacement into 2 subsamples: TrainData (60% of the original Training data set) and TestData (40%). 
+At last, we apply the model to the original testing data set downloaded from the data source.
+
+```{r}
+result <- predict(modelRf, testTidy[, -length(names(testTidy))])
+result
+```
+
+##Figures##
+
+#Correlation Matrix Visualization#
+```{r}
+corrPlot <- cor(trainData[, -length(names(trainData))])
+corrplot(corrPlot, method="color")
+```
+
+#Plotting the importance of the model variables#
+```{r}
+plot(varImp(modelRf))
+```
+
+#Tree visualization#
+```{r}
+treeModel <- rpart(classe ~ ., data=trainData, method="class")
+prp(treeModel)
+```
